@@ -1,13 +1,21 @@
 import streamlit as st
 import numpy as np
-import pickle
+import joblib
+import pandas as pd
+import os
 
 # -----------------------------
 # PAGE CONFIG
 # -----------------------------
-st.set_page_config(page_title="Vehicle Recommendation System", layout="centered")
+st.set_page_config(page_title="Customer Segmentation", layout="centered")
 
-st.title("🚗 Vehicle Recommendation / Customer Segmentation App")
+st.title("🛍️ Retail Customer Segmentation (RFM Model)")
+
+# -----------------------------
+# DEBUG: Check files
+# -----------------------------
+st.subheader("📂 Debug Info")
+st.write(os.listdir())
 
 # -----------------------------
 # LOAD MODELS
@@ -15,66 +23,36 @@ st.title("🚗 Vehicle Recommendation / Customer Segmentation App")
 @st.cache_resource
 def load_models():
     try:
-        with open("scaler.pkl", "rb") as f:
-            scaler = pickle.load(f)
-
-        with open("kmeans.pkl", "rb") as f:
-            kmeans = pickle.load(f)
-
-        return scaler, kmeans, None
+        scaler = joblib.load("scaler.pkl")
+        kmeans = joblib.load("kmeans.pkl")
+        return scaler, kmeans
     except Exception as e:
-        return None, None, str(e)
+        st.error(f"Model loading failed: {e}")
+        return None, None
 
 
-scaler, kmeans, load_error = load_models()
-
-# -----------------------------
-# DEBUG INFO
-# -----------------------------
-st.subheader("📁 Debug Info")
-
-import os
-files = os.listdir()
-
-st.write("Files in directory:")
-st.code(files)
-
-if load_error:
-    st.error(f"Model loading failed: {load_error}")
+scaler, kmeans = load_models()
 
 # -----------------------------
-# INPUT SECTION
+# USER INPUT
 # -----------------------------
-st.subheader("Enter Customer Details")
+st.subheader("Enter Customer RFM Values")
 
-age = st.slider("Age", 18, 70, 25)
-income = st.number_input("Annual Income", min_value=10000, max_value=200000, value=50000)
-spending_score = st.slider("Spending Score", 1, 100, 50)
+recency = st.number_input("Recency (days since last purchase)", min_value=0, value=30)
+frequency = st.number_input("Frequency (number of purchases)", min_value=0, value=5)
+monetary = st.number_input("Monetary (total spend)", min_value=0.0, value=500.0)
 
 # -----------------------------
-# CLUSTER → MEANING
+# SEGMENT LABELS
 # -----------------------------
-def get_segment_label(cluster):
-    labels = {
-        0: "💸 High Income - High Spending (Premium Customers)",
-        1: "💰 High Income - Low Spending (Careful Buyers)",
-        2: "🧑‍💼 Average Customers",
-        3: "🎯 Low Income - High Spending (Impulse Buyers)",
-        4: "🪙 Low Income - Low Spending (Budget Customers)"
+def get_segment(cluster):
+    segments = {
+        0: "💎 High Value Customers",
+        1: "🛍️ Regular Customers",
+        2: "⚠️ At Risk Customers",
+        3: "🆕 New Customers"
     }
-    return labels.get(cluster, "Unknown Segment")
-
-
-def get_vehicle_recommendation(cluster):
-    recommendations = {
-        0: ["BMW 3 Series", "Audi A4", "Mercedes C-Class"],
-        1: ["Toyota Camry", "Honda City Hybrid", "Skoda Slavia"],
-        2: ["Hyundai Creta", "Kia Seltos", "Maruti Grand Vitara"],
-        3: ["Hyundai i20", "Tata Altroz", "Maruti Baleno"],
-        4: ["Maruti Alto", "Renault Kwid", "Tata Tiago"]
-    }
-    return recommendations.get(cluster, ["No recommendation available"])
-
+    return segments.get(cluster, "Unknown")
 
 # -----------------------------
 # PREDICTION
@@ -82,24 +60,25 @@ def get_vehicle_recommendation(cluster):
 if st.button("Predict Segment"):
 
     if scaler is None or kmeans is None:
-        st.error("Model not loaded properly.")
+        st.error("Models not loaded properly.")
     else:
         try:
-            # 🔥 FIXED dtype issue
-            input_data = np.array([[age, income, spending_score]], dtype=np.float64)
+            # FIX dtype issue
+            input_data = np.array([[recency, frequency, monetary]], dtype=np.float64)
 
             scaled = scaler.transform(input_data)
             cluster = kmeans.predict(scaled)[0]
 
-            # -----------------------------
-            # OUTPUT
-            # -----------------------------
-            st.success(f"Predicted Segment: {cluster}")
-            st.info(get_segment_label(cluster))
-
-            st.subheader("🚗 Recommended Vehicles")
-            for car in get_vehicle_recommendation(cluster):
-                st.write(f"• {car}")
+            st.success(f"Cluster: {cluster}")
+            st.info(get_segment(cluster))
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
+
+# -----------------------------
+# OPTIONAL: DATA INSIGHTS
+# -----------------------------
+if os.path.exists("rfm_data.csv"):
+    if st.checkbox("Show Cluster Insights"):
+        df = pd.read_csv("rfm_data.csv")
+        st.write(df.groupby("Cluster").mean())
